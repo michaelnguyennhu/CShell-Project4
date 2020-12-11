@@ -1,0 +1,54 @@
+Michael Nguyen and Nicholas Farinella
+mnn45 and njf61
+
+
+How to use the shell: 
+Use the make command to compile cshell.c and the command ./cshell to start using the shell. 
+The shell will prompt you to input a command by displaying the current working directory. 
+The shell supports bash commands like ls and cd. It also supports multiple commands in one line, 
+separated by semicolons, as well as piping and one instance of redirection of command output. 
+
+
+Important Sections of our code: 
+- Our code uses a while loop that continues until exit is entered, accepting input from stdin.
+- First, we attain the current working directory using getcwd and print that. Then, we begin tokenizing and executing the command that is inputted by the user. 
+- The inner while loop is where the inputted command is tokenized by the ";" character, separating multiple commands from each other, and we perform those commands one-by-one.
+- Inside the inner while loop, the cases of a command containing, "exit", "cd", piping, redirection without piping, and redirection with piping are dealt with.
+- In the case of a command containing "exit", we search through the string until we reach a character that is not a space, " ", and save the index.
+	We then use strstr() to see if the string is "exit" or "exit\n". In both cases, the program will print out "exiting" and return.
+- In the case of a "cd" command, we use chdir to change our current directory. Our program does support "cd ~" and "cd -" which are special inputs for the cd command. We also check for a valid path.
+- In the case of piping, we use strtok_r to tokenize out the commands to pipe. For each command in a potential chain of pipes, we call pipe() on an array of 2 ints that are used as file descriptors to set up a pipe.
+    We fork and use execvp to execute each command as a child process. The key is that we create a file descriptor that we use as a duplicate of standard input with the command dup2. We also use dup2 to duplicate standard output.
+    Those become the ends of the pipe, and until the last command in a chain of pipes, nothing will be printed to standard output.
+- In the case of redirection, we used strtok_r to acquire two halves of the command. The first half of the command is the actual command that will be run, which is to the left side
+    	of the ">" or ">>". The second half of the command is the file that the output will be placed inside of. We then strtok through the first half of the command with the delimiters, " \n",
+    	and insert each token into an array. Then we use fork to create a child process that will run the command using execvp. In the child process section part of the code denoted by if(pid == 0), 
+    	we then run our redirection function that takes a filename and a mode. The redirection function creates or opens a file using the filename given, and then uses dup2 to make the output write 
+    	into the file that was given. If the mode is 1, then the file given will be recreated so it is back to size 0. Once the redirection function has been run, then we run the first half of the 
+	command with execvp. We also close the file descriptor that was used.
+
+- When a command has neither redirection, piping, "cd", or "exit", we simply create a child process using fork() where we run the inputted command using execvp.
+
+- We also have a signal set up for when Control + C is inputted. This goes to a signal handler function, ctrlCSignal. This command kills the current child process, which would be a currently running command, if any.
+    To make this possible, each time we fork to run a command, the pid for that process is stored in a global variable of type pid_t. We also have a global int variable called killing that is used as a boolean.
+    This variable is used to allow us to stop running the current command and also not run any further commands in the user input. This includes commands separated by semicolons or piping that would otherwise be executed, as well as interrupting any redirection.
+
+
+To our knowledge, our code implements all the requirements of this project.
+
+
+
+Difficulties when writing this program: 
+
+Parsing the input was difficult and required a lot of time troubleshooting. In particular, we found strtok a bit too inflexible, as we wanted to tokenize commands multiple times using different delimiters.
+Our solution was using the command strtok_r, which saves the current state of the token buffer in a pointer that we create within our program. We also employed heavy use of strcpy to save strings in a different pointer,
+and strstr to search for characters without changing the state of the token buffer.
+
+
+Piping was difficult to implement. We had a hard time wrapping our heads around how to use the pipe function to connect the output of the child process that ran execvp
+to the parent process. At first we tried to keep a buffer that would hold the output and then insert the buffer into the args array. This did not work. We then used the 
+implementation above that uses the pipe and dup2 functions. 
+
+
+
+
