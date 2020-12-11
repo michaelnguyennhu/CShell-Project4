@@ -23,19 +23,18 @@ void ctrlCSignal(int signum){
    		kill(pid, 0);
 		killing = 1;
 	}
-};	
+};
 
-int redirection(char *toCopy, char *newFile, int mode){	//copies the file of toCopy to newFile
-
-	fd = open(newFile, 777);
-	if (fd < 0){
-		creat(newFile, 777);
-	}
+int redirection(char *newFile, int mode){	//copies the file of toCopy to newFile
+	
+	
+	int flags = O_CREAT|O_WRONLY| (mode == 'w' ? O_TRUNC : O_APPEND);
+	fd = open(newFile, flags, 0666);
 
 	if (mode == 1){ //for "">"
-		dup2(fd, 1);
-		dup2(fd, 2);
-		creat(newFile, 777);
+		int hi = dup2(fd, 1);
+		int hello = dup2(fd, 2);
+		creat(newFile, 0666);
 		
 	}
 	else if (mode == 2){ //for ">>"
@@ -48,7 +47,7 @@ int redirection(char *toCopy, char *newFile, int mode){	//copies the file of toC
 
 
 	return 0;
-}
+};
 
 
 int main(int argc, char *argv[]){
@@ -65,9 +64,6 @@ int main(int argc, char *argv[]){
 	lastPath = (char *)malloc((strlen(temppath)+1) *sizeof(char));
 	strcpy(lastPath, temppath);
 
-	
-	
-	///context switch here
 	while (exiting == 0) {
 		//gets the current working directory to set up prompt
    		char currDirr[1000];
@@ -75,17 +71,17 @@ int main(int argc, char *argv[]){
     	printf("%s $ ", currDirr);
 
 		//gets an input command from stdin
-		char buf[500];
-        fgets(buf, 500, stdin);
+		char buf[5000];
+        fgets(buf, 5000, stdin);
 
 		
-        char * cmd = strtok(buf, ";\n");
-		printf("cmd = %s\n", cmd);
+        char *buftemp = buf;
+		char *cmd;
 		
 		
-		while (cmd != NULL){
+		while ((cmd = strtok_r(buftemp, ";\n", &buftemp))){
 			
-			//printf("%s\n", cmd);
+			//printf("cmd = %s\n", cmd);
 
 			////for exit
 			int index = 0;
@@ -102,16 +98,22 @@ int main(int argc, char *argv[]){
             ////for exit
 
 
-			//creating the pointers that will hold the arguments and executed command
-			char * args[128]; //holds each argument separated by spaces
-			char * currcmdBuf = (char *)malloc((strlen(cmd)+1)*sizeof(char));
-			strcpy(currcmdBuf, cmd);	//holds the command to be run
-			printf("currcmd = %s99\n", currcmdBuf);
-			char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
-			//creating the pointers that will hold the arguments and executed command
+
+			
+
+
 
 			//for change directory
 			if (cmd[index] == 'c' && ((strstr(cmd, "cd") != NULL && (strlen(cmd) < index + 3)) || strstr(cmd, "cd ") != NULL)){
+				//creating the pointers that will hold the arguments and executed command
+				char * args[128]; //holds each argument separated by spaces
+				char * currcmdBuf = (char *)malloc((strlen(cmd)+1)*sizeof(char));
+				strcpy(currcmdBuf, cmd);	//holds the command to be run
+				char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
+				//creating the pointers that will hold the arguments and executed command
+
+
+
 				currcmd = strtok(NULL, " \n");
 			
 				char *lastPathTemp = (char *)malloc((strlen(currDirr) + 1)*sizeof(char));
@@ -161,22 +163,383 @@ int main(int argc, char *argv[]){
 				}
 
 				getcwd(currDirr, 1000);
-				cmd = strtok(NULL, ";\n");
-				printf("cmd = %s\n", cmd);
 				continue;
 			}
 			//for change directory
+			
+
+			
+			//handles redirection with and without piping
+			if (strstr(cmd,">") != NULL){
+				if (strstr(cmd, ">>") != NULL){ //this means ">>" //use mode 2
+					//check for piping and run the command and redirect the output 
+					if (strstr(cmd, "|") != NULL){ //here we can use strtok_r
+						//printf("piping with no double redirection\n");
+
+						char *forRedir = (char *)malloc((strlen(cmd) + 1) * sizeof(char));
+						strcpy(forRedir, cmd);
+						char *redir2 = forRedir;
+						char *redir = strtok_r(redir2, ">", &redir2);// now you have the first token
+						char *token1 = (char *)malloc((strlen(redir) + 1) * sizeof(char));
+						strcpy(token1, redir);
+						redir = strtok_r(redir2, " >", &redir2);//now you have the second token
+
+
+						//now you deal with piping in the first token
+						char *pipeBuffer = token1;
+						char *newCmd;
+						
+
+
+						int pipefd[2];
+						pid_t pipepid;
+						int newfd = 0;
+
+						while ((newCmd = strtok_r(pipeBuffer, "|", &pipeBuffer))){ //for each pipe encountered till end of the string 
+							
+							
+							char * args[128]; //holds each argument separated by spaces
+							char * currcmdBuf = (char *)malloc((strlen(newCmd)+1)*sizeof(char));
+							strcpy(currcmdBuf, newCmd);	//holds the command to be run
+							char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
+							//creating the pointers that will hold the arguments and executed command
+
+							
+							//creating the pointers that will hold the arguments and executed command
+							char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+							strcpy(cmdToExec, currcmd);	//store the command in a string
+							
+										
+					
+							int count = 0;
+							while (currcmd != NULL) { //populates the args array
+								
+								args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+								strcpy(args[count], currcmd);
+								args[count+1] = NULL;
+								currcmd = strtok(NULL, " \n");
+						
+								count++;
+							}
+
+							pipe(pipefd);
+							pid = fork();
+
+							if (pid == -1) {
+								perror("error");
+								exit(1);
+							} else if (pid == 0) {
+								dup2(newfd, 0);
+								if (strlen(pipeBuffer) != 0){
+									dup2(pipefd[1], 1);
+								}
+								else {
+									redirection(redir, 2);
+								}
+								close(pipefd[0]);
+								execvp(cmdToExec, args);
+								exit(1);
+							} else {
+								wait(NULL);
+								if (killing == 1){
+									break;
+								}
+								close(pipefd[1]);
+								newfd = pipefd[0];
+							}
+						}
+						//piping is done 
+
+					}
+					else { //>> no piping
+					
+						char * args[128]; //holds each argument separated by spaces
+						char * currcmdBuf = (char *)malloc((strlen(cmd)+1)*sizeof(char));
+						strcpy(currcmdBuf, cmd);	//holds the command to be run
+				
+						char * currcmdBuf2 = strtok_r(currcmdBuf, ">", &currcmdBuf);
+						char * currcmdBuf3 = (char *)malloc((strlen(currcmdBuf2)+1)*sizeof(char));
+						strcpy(currcmdBuf3, currcmdBuf2);
+						currcmdBuf2 = strtok_r(currcmdBuf, ">", &currcmdBuf);
+						char * redir = (char *)malloc((strlen(currcmdBuf2)+1)*sizeof(char));
+						strcpy(redir, currcmdBuf2);
+						char * redir2 = redir;
+						redir = strtok_r(redir2, " ", &redir2);
+						
+						char * currcmd = strtok(currcmdBuf3, " \n");	//get the command here 
+						
+						char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+						strcpy(cmdToExec, currcmd);	//store the command in a string
+			
+			
+						int count = 0;
+						while (currcmd != NULL) { //populates the args array
+							args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+							strcpy(args[count], currcmd);
+							args[count+1] = NULL;
+							currcmd = strtok(NULL, " \n");
+				
+							count++;
+						}
+
+						
+						//to run a command
+						pid = fork();
+	
+						if (pid == 0) {
+							
+							redirection(redir, 2);
+							execvp(cmdToExec, args);
+							close(fd);
+							return 0;
+						} else {
+							wait(NULL);
+							if (killing == 1){
+								killing = 0;
+								break;
+							}
+							pid = 0;
+						}
+						pid = 0;
+						//to run a command
+
+					}
+
+
+				}
+				else { //this means ">" //use mode 1
+					//check for piping and run the command and redirect the output 
+					if (strstr(cmd, "|") != NULL){ //here we can use strtok_r
+						//printf("piping with redirection\n");
+
+						char *forRedir = (char *)malloc((strlen(cmd) + 1) * sizeof(char));
+						strcpy(forRedir, cmd);
+						char *redir2 = forRedir;
+						char *redir = strtok_r(redir2, ">", &redir2);// now you have the first token
+						char *token1 = (char *)malloc((strlen(redir) + 1) * sizeof(char));
+						strcpy(token1, redir);
+						redir = strtok_r(redir2, " >", &redir2);//now you have the second token
+
+
+						//now you deal with piping in the first token
+						char *pipeBuffer = token1;
+						char *newCmd;
+						
+
+
+						int pipefd[2];
+						pid_t pipepid;
+						int newfd = 0;
+
+						while ((newCmd = strtok_r(pipeBuffer, "|", &pipeBuffer))){ //for each pipe encountered till end of the string 
+							
+							
+							char * args[128]; //holds each argument separated by spaces
+							char * currcmdBuf = (char *)malloc((strlen(newCmd)+1)*sizeof(char));
+							strcpy(currcmdBuf, newCmd);	//holds the command to be run
+							char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
+							//creating the pointers that will hold the arguments and executed command
+
+							
+							//creating the pointers that will hold the arguments and executed command
+							char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+							strcpy(cmdToExec, currcmd);	//store the command in a string
+							
+										
+					
+							int count = 0;
+							while (currcmd != NULL) { //populates the args array
+								
+								args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+								strcpy(args[count], currcmd);
+								args[count+1] = NULL;
+								currcmd = strtok(NULL, " \n");
+						
+								count++;
+							}
+
+							pipe(pipefd);
+							pid = fork();
+
+							if (pid == -1) {
+								perror("error");
+								exit(1);
+							} else if (pid == 0) {
+								dup2(newfd, 0);
+								if (strlen(pipeBuffer) != 0){
+									dup2(pipefd[1], 1);
+								}
+								else {
+									redirection(redir, 1);
+								}
+								close(pipefd[0]);
+								execvp(cmdToExec, args);
+								exit(1);
+							} else {
+								wait(NULL);
+								if (killing == 1) {
+									break;
+								}
+								close(pipefd[1]);
+								newfd = pipefd[0];
+							}
+						}
+						//piping is done 
+
+
+					}
+					else { //without piping 
+						
+						char * args[128]; //holds each argument separated by spaces
+						char * currcmdBuf = (char *)malloc((strlen(cmd)+1)*sizeof(char));
+						strcpy(currcmdBuf, cmd);	//holds the command to be run
+				
+						char * currcmdBuf2 = strtok_r(currcmdBuf, ">", &currcmdBuf);
+						char * currcmdBuf3 = (char *)malloc((strlen(currcmdBuf2)+1)*sizeof(char));
+						strcpy(currcmdBuf3, currcmdBuf2);
+						currcmdBuf2 = strtok_r(currcmdBuf, ">", &currcmdBuf);
+						char * redir = (char *)malloc((strlen(currcmdBuf2)+1)*sizeof(char));
+						strcpy(redir, currcmdBuf2);
+						char * redir2 = redir;
+						redir = strtok_r(redir2, " ", &redir2);
+						
+						char * currcmd = strtok(currcmdBuf3, " \n");	//get the command here 
+						
+						char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+						strcpy(cmdToExec, currcmd);	//store the command in a string
+			
+			
+						int count = 0;
+						while (currcmd != NULL) { //populates the args array
+							args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+							strcpy(args[count], currcmd);
+							args[count+1] = NULL;
+							currcmd = strtok(NULL, " \n");
+				
+							count++;
+						}
+
+						
+						//to run a command
+						pid = fork();
+	
+						if (pid == 0) {
+							
+							redirection(redir, 1);
+							execvp(cmdToExec, args);
+							close(fd);
+							return 0;
+						} else {
+							wait(NULL);
+							if (killing == 1) {
+								killing = 0;
+								break;
+							}
+							pid = 0;
+						}
+						pid = 0;
+						//to run a command
+
+					}
+
+				}
+				if (killing == 1) {
+					killing = 0;
+					break;
+				}
+
+				continue;
+			}
+			//handles redirection with or without piping
+
+
+
+			//handles only piping if redirection was not found 
+			if (strstr(cmd, "|") != NULL){ //here we can use strtok_r
+				char *pipeBuffer = cmd;
+				char *newCmd;
+				
+
+
+				int pipefd[2];
+				pid_t pipepid;
+				int newfd = 0;
+
+				while ((newCmd = strtok_r(pipeBuffer, "|", &pipeBuffer))){ //for each pipe encountered till end of the string 
+					
+					
+					char * args[128]; //holds each argument separated by spaces
+					char * currcmdBuf = (char *)malloc((strlen(newCmd)+1)*sizeof(char));
+					strcpy(currcmdBuf, newCmd);	//holds the command to be run
+					char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
+					//creating the pointers that will hold the arguments and executed command
+
+					
+					//creating the pointers that will hold the arguments and executed command
+					char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+					strcpy(cmdToExec, currcmd);	//store the command in a string
+					
+			
+					int count = 0;
+					while (currcmd != NULL) { //populates the args array
+						
+						args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
+						strcpy(args[count], currcmd);
+						args[count+1] = NULL;
+						currcmd = strtok(NULL, " \n");
+				
+						count++;
+					}
+
+					pipe(pipefd);
+					pid = fork();
+					
+					if (pid == -1) {
+						perror("error");
+						exit(1);
+					} else if (pid == 0) {
+						dup2(newfd, 0);
+						
+						if (strlen(pipeBuffer) != 0){
+							dup2(pipefd[1], 1);
+							
+						}
+						close(pipefd[0]);
+						execvp(cmdToExec, args);
+						exit(1);
+					} else {
+						wait(NULL);
+						if (killing == 1){
+							break;
+						}
+						close(pipefd[1]);
+						newfd = pipefd[0];
+					}
+				}
+				if (killing == 1){
+					killing = 0;
+					break;
+				}
+				continue;
+			}
+			//handles only piping if redirection was not found
+
+
+
 
 
 			//creating the pointers that will hold the arguments and executed command
+			char * args[128]; //holds each argument separated by spaces
+			char * currcmdBuf = (char *)malloc((strlen(cmd)+1)*sizeof(char));
+			strcpy(currcmdBuf, cmd);	//holds the command to be run
+			char * currcmd = strtok(currcmdBuf, " \n");	//get the command here 
+			
 			char * cmdToExec = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
 			strcpy(cmdToExec, currcmd);	//store the command in a string
 			
 			
 			int count = 0;
 			while (currcmd != NULL) { //populates the args array
-				printf("%s ", currcmd);
-				printf("%lu\n", strlen(currcmd));
 				args[count] = (char *)malloc((strlen(currcmd)+1)*sizeof(char));
 				strcpy(args[count], currcmd);
 				args[count+1] = NULL;
@@ -184,41 +547,29 @@ int main(int argc, char *argv[]){
 				
 				count++;
 			}
-			//creating the pointers that will hold the arguments and executed command
-
-
-
-
-			printf("cmd and args:\n");
-			printf("%s\n", cmdToExec);
-			for (int i = 0; i < count; i++){
-				printf("%s, ", args[i]);
-			}
-			printf("\n%d\n", count);
-
-			
-			//look for redirection
 
 
 			//to run a command
 			pid = fork();
 	
 			if (pid == 0) {
-				printf("here\n");
+				
 				execvp(cmdToExec, args);
 				return 0;
 			} else {
 				wait(NULL);
+				if (killing == 1){
+					killing = 0;
+					break;
+				}
+				
 				pid = 0;
 			}
 			pid = 0;
-		
 			//to run a command
 
 			
-			//goes to the next command separated by ";"
-			cmd = strtok(NULL, ";\n");
-			printf("cmd = %s\n", cmd);
+		
 		}
 	}
 
